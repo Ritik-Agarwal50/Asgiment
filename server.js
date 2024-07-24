@@ -23,10 +23,24 @@ if (
 const connection = new Connection(quikNodeEndpoint);
 
 const app = express();
-const port = 3001;
+const port = 3002;
+
+// Function to validate if a string is a valid base-58 encoded Solana public key
+function isValidSolanaPublicKey(address) {
+  try {
+    new PublicKey(address); // This will throw an error if the address is invalid
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
 
 // Function to fetch transactions for a wallet address
 async function getTransactions(walletAddress) {
+  if (!isValidSolanaPublicKey(walletAddress)) {
+    throw new Error("Invalid wallet address");
+  }
+
   const publicKey = new PublicKey(walletAddress);
 
   // Fetch signatures for the wallet address
@@ -81,12 +95,36 @@ async function getTransactions(walletAddress) {
         signatureInfo.signature
       );
       if (transaction) {
-        // Include only specific fields to control the size of the data
+        // Extract transaction details
+        const meta = transaction.meta;
+        const preTokenBalances = meta.preTokenBalances[0] || {};
+        const postTokenBalances = meta.postTokenBalances[0] || {};
+        const token = meta.preTokenBalances[0]?.mint || {}; // Assuming preTokenBalances contains mint info
+
         const simplifiedTransaction = {
-          signature: transaction.transaction.signatures[0],
-          slot: transaction.slot,
-          meta: transaction.meta, // You can further filter fields inside meta if needed
+          uuid: meta.transactionHash, // Or any unique identifier if available
+          network: "Solana",
+          fee: meta.fee || 0,
+          compute_units_consumed: meta.computeUnitsConsumed || 0,
+          timestamp: transaction.blockTime
+            ? new Date(transaction.blockTime * 1000).toISOString()
+            : null,
+          type:
+            transaction.transaction.message.instructions[0]?.parsed?.type ||
+            "unknown",
+          wallet_address: walletAddress,
+          transaction_hash: signatureInfo.signature,
+          token: {
+            uuid: token, // Token UUID if available
+            network: "Solana",
+            contract_address: preTokenBalances.mint || null,
+            name: "solana", // Replace with actual token name if available
+            symbol: "sol", // Replace with actual token symbol if available
+            decimals: preTokenBalances.uiTokenAmount?.decimals || 0,
+            display_decimals: 2, // This could be adjusted based on the token
+          },
         };
+
         transactions.push(simplifiedTransaction);
         if (transactions.length >= 100) {
           // Limit the number of transactions
